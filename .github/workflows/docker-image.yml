@@ -1,7 +1,11 @@
-# .github/workflows/docker-publish.yml
 name: Docker Image CI
 
 on:
+  # 新增：定时任务
+  schedule:
+    # 分 时 日 月 周
+    # 0 0 * * 0 代表：每周日 00:00 (UTC) 触发，即每7天一次
+    - cron: '0 0 * * 0'
   push:
     branches: [ "main" ]
   pull_request:
@@ -31,15 +35,19 @@ jobs:
         uses: docker/metadata-action@v4
         with:
           images: ghcr.io/jyf0214/uptime-kuma-mysql
+          # 这里配置标签策略
           tags: |
             type=sha,prefix=,format=short,key=version
             type=ref,event=branch
+            # 如果你是定时构建，下面的规则会更新 latest 标签
+            type=raw,value=latest,enable=${{ github.event_name == 'schedule' || github.ref == 'refs/heads/main' }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v4
         with:
           context: .
           no-cache: true
+          # 定时任务(schedule)也属于非 pull_request，所以会执行 push
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
