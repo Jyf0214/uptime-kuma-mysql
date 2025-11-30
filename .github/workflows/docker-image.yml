@@ -1,14 +1,12 @@
 name: Docker Image CI
 
 on:
-  # 新增：定时任务
   schedule:
-    # 分 时 日 月 周
-    # 0 0 * * 0 代表：每周日 00:00 (UTC) 触发，即每7天一次
+    # 每周日 00:00 (UTC) 运行 (每7天)
     - cron: '0 0 * * 0'
+  # 允许手动触发 (方便测试)
+  workflow_dispatch:
   push:
-    branches: [ "main" ]
-  pull_request:
     branches: [ "main" ]
 
 jobs:
@@ -16,9 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
-    outputs:
-      sha_tag: ${{ steps.meta.outputs.version }}
+      packages: write # 必须有写权限才能上传和删除
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -35,19 +31,28 @@ jobs:
         uses: docker/metadata-action@v4
         with:
           images: ghcr.io/jyf0214/uptime-kuma-mysql
-          # 这里配置标签策略
+          # 修改点 1: 只保留 latest 标签
+          # 去掉了 type=sha 和 type=ref，强制所有构建都叫 "latest"
           tags: |
-            type=sha,prefix=,format=short,key=version
-            type=ref,event=branch
-            # 如果你是定时构建，下面的规则会更新 latest 标签
-            type=raw,value=latest,enable=${{ github.event_name == 'schedule' || github.ref == 'refs/heads/main' }}
+            type=raw,value=latest
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v4
         with:
           context: .
           no-cache: true
-          # 定时任务(schedule)也属于非 pull_request，所以会执行 push
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      # 修改点 2: 删除旧版本
+      # 当 latest 标签移到新镜像后，旧镜像会变成无标签(untagged)状态，此步骤将其删除
+      - name: Delete older package versions
+        uses: actions/delete-package-versions@v4
+        with:
+          package-name: 'uptime-kuma-mysql'
+          package-type: 'container'
+          # 保留最近的 1 个版本（即刚刚构建的那个），其余删除
+          min-versions-to-keep: 1
+          # 删除所有无标签的旧镜像
+          delete-only-untagged-versions: 'true'
